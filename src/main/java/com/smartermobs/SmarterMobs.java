@@ -12,6 +12,7 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.NeutralMob;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.enderdragon.phases.EnderDragonPhase;
@@ -91,7 +92,9 @@ public class SmarterMobs {
             } else if (en instanceof Phantom ph) {
                 setFollowRange(ph, 64);
             } else if (en instanceof Monster m) {
-                setFollowRange(m, 48); // All monsters notice player from farther away
+                if (!(m instanceof EnderMan)) {
+                    setFollowRange(m, 48); // Hostile monsters notice player from farther away (Endermen excluded)
+                }
             }
         }
 
@@ -131,6 +134,10 @@ public class SmarterMobs {
 
         // ---------------- Pack Aggro (24 blocks) & Extended Tracking (10s) ----------------
         private void packAndTrackingTick(Monster m) {
+            // CRITICAL: Endermen & Neutral mobs are strictly excluded from pack aggro!
+            // In The End, Endermen will NEVER chain-aggro or attack unprovoked.
+            if (m instanceof EnderMan || m instanceof NeutralMob) return;
+
             LivingEntity target = m.getTarget();
             long now = m.level().getGameTime();
 
