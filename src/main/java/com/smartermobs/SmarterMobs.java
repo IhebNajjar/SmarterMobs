@@ -85,8 +85,8 @@ public class SmarterMobs {
 
             if (en instanceof AbstractSkeleton sk) {
                 setFollowRange(sk, 40);
-                // Clear vanilla goals so our custom kiting, meat-shielding, and trapped attack logic take full effect
-                sk.goalSelector.removeAllGoals(g -> true);
+                // Remove AvoidEntityGoal so it doesn't sprint into walls, preserving smooth bow draw animations
+                sk.goalSelector.removeAllGoals(g -> g instanceof net.minecraft.world.entity.ai.goal.AvoidEntityGoal<?>);
             } else if (en instanceof Creeper c) {
                 setFollowRange(c, 40);
             } else if (en instanceof Phantom ph) {
@@ -221,22 +221,32 @@ public class SmarterMobs {
             }
         }
 
-        // ---------------- Ender Dragon (With cooldown between fireballs and charge) ----------------
+        // ---------------- Ender Dragon (Frequent Dives & balanced ranged attacks) ----------------
         private void dragonTick(EnderDragon d) {
             if (d.isDeadOrDying()) return;
-            Player p = d.level().getNearestPlayer(d, 120);
+            Player p = d.level().getNearestPlayer(d, 140);
             if (p == null || p.isCreative() || p.isSpectator()) return;
-
-            long now = d.level().getGameTime();
-            long nextAction = d.getPersistentData().getLong("sm_dragon_next_action");
-
-            // Cooldown between attacks
-            if (now < nextAction) return;
 
             int t = d.tickCount;
 
-            // 1. Breath barrage: shoots 3 fireballs aimed straight at the player
-            if (t % 110 == 20) {
+            // Detect if player is looking away from the dragon
+            Vec3 playerLook = p.getViewVector(1.0F).normalize();
+            Vec3 toDragon = d.position().subtract(p.position()).normalize();
+            boolean lookingAway = playerLook.dot(toDragon) < -0.15;
+
+            // 1. FREQUENT SWOOPING DIVES! Dives every 55 ticks (~2.7s) or quickly when you turn your back
+            if (t % 55 == 0 || (lookingAway && t % 25 == 0)) {
+                d.getPhaseManager().setPhase(EnderDragonPhase.CHARGING_PLAYER);
+                d.getPhaseManager().getPhase(EnderDragonPhase.CHARGING_PLAYER).setTarget(p.position());
+
+                // Direct high-speed swoop dive towards player
+                Vec3 diveVec = p.position().subtract(d.position()).normalize().scale(1.45);
+                d.setDeltaMovement(diveVec.x, diveVec.y, diveVec.z);
+                return;
+            }
+
+            // 2. Breath barrage: only occasionally when at a distance (> 28 blocks)
+            if (t % 160 == 40 && d.distanceTo(p) > 28.0) {
                 Vec3 head = d.head.position();
                 Vec3 dir = p.getEyePosition().subtract(head);
                 for (int i = -1; i <= 1; i++) {
@@ -245,30 +255,10 @@ public class SmarterMobs {
                     fb.moveTo(head.x, head.y, head.z, 0, 0);
                     d.level().addFreshEntity(fb);
                 }
-                // Cooldown: at least 70 ticks (3.5s) before it can charge
-                d.getPersistentData().putLong("sm_dragon_next_action", now + 70);
-                return;
-            }
-
-            // 2. Surprise Ambush Charge (No warning dive)
-            Vec3 playerLook = p.getViewVector(1.0F).normalize();
-            Vec3 toDragon = d.position().subtract(p.position()).normalize();
-            boolean lookingAway = playerLook.dot(toDragon) < -0.15; // player not looking at dragon
-
-            if ((lookingAway && t % 70 == 0) || (t % 140 == 0)) {
-                d.getPhaseManager().setPhase(EnderDragonPhase.CHARGING_PLAYER);
-                d.getPhaseManager().getPhase(EnderDragonPhase.CHARGING_PLAYER).setTarget(p.position());
-
-                // Instant speed boost towards player for a sudden no-warning dive
-                Vec3 diveVec = p.position().subtract(d.position()).normalize().scale(1.35);
-                d.setDeltaMovement(diveVec.x, diveVec.y, diveVec.z);
-
-                // Cooldown: at least 80 ticks (4s) before it can fire breath attacks
-                d.getPersistentData().putLong("sm_dragon_next_action", now + 80);
             }
         }
 
-        // ---------------- Skeletons (10-block retreat, hide behind zombies, fight when cornered) ----------------
+        // ---------------- Skeletons (Smooth bow animations, 10-block retreat, meat-shields, fight when cornered) ----------------
         private void skeletonTick(AbstractSkeleton sk) {
             LivingEntity t = sk.getTarget();
             if (!(t instanceof Player p) || !p.isAlive() || p.isCreative() || p.isSpectator()) return;
@@ -276,24 +266,24 @@ public class SmarterMobs {
             double dist = sk.distanceTo(p);
             long now = sk.level().getGameTime();
 
-            // Check if skeleton is trapped in a tight corner or very close
             boolean isCornered = (sk.horizontalCollision || sk.getDeltaMovement().horizontalDistanceSqr() < 0.005) && dist < 8.0;
             boolean isTooClose = dist <= 3.5;
 
             if (isTooClose || isCornered) {
-                // FIXED: When trapped or rushed, don't run against walls! Fight back aggressively!
-                sk.getLookControl().setLookAt(p, 30.0F, 30.0F);
+                // FIXED: Cornered / rushed: face player and fight point-blank!
+                sk.getLookControl().setLookAt(p, 40.0F, 40.0F);
 
-                if (now >= sk.getPersistentData().getLong("sm_skel_shot")) {
+                // If not currently drawing bow, shoot!
+                if (!sk.isUsingItem() && now >= sk.getPersistentData().getLong("sm_skel_shot")) {
                     sk.performRangedAttack(p, 1.0F);
                     sk.getPersistentData().putLong("sm_skel_shot", now + 16);
                 }
 
-                if (dist <= 2.0) {
-                    sk.doHurtTarget(p); // Melee strike if right in your face
+                if (dist <= 2.2) {
+                    sk.doHurtTarget(p); // Melee strike if right in your face!
                 }
             } else if (dist <= 10.0) {
-                // Retreat when within 10 blocks: check if there is a tanky zombie or monster to hide behind
+                // Retreat when within 10 blocks: check if there is a tanky monster to hide behind
                 Monster meatShield = null;
                 double minShieldDist = Double.MAX_VALUE;
                 AABB searchBox = sk.getBoundingBox().inflate(10);
@@ -308,28 +298,15 @@ public class SmarterMobs {
                 }
 
                 if (meatShield != null) {
-                    // Position behind the meat shield relative to the player
                     Vec3 playerToShield = meatShield.position().subtract(p.position()).normalize();
                     Vec3 hideSpot = meatShield.position().add(playerToShield.scale(2.5));
-                    sk.getNavigation().moveTo(hideSpot.x, hideSpot.y, hideSpot.z, 1.2D);
+                    sk.getNavigation().moveTo(hideSpot.x, hideSpot.y, hideSpot.z, 1.25D);
                 } else {
-                    // Back away directly from player
-                    Vec3 away = sk.position().subtract(p.position()).normalize().scale(0.35);
+                    Vec3 away = sk.position().subtract(p.position()).normalize().scale(0.24);
                     sk.setDeltaMovement(away.x, sk.getDeltaMovement().y, away.z);
                 }
 
                 sk.getLookControl().setLookAt(p, 30.0F, 30.0F);
-                if (now >= sk.getPersistentData().getLong("sm_skel_shot")) {
-                    sk.performRangedAttack(p, 1.0F);
-                    sk.getPersistentData().putLong("sm_skel_shot", now + 22);
-                }
-            } else {
-                // Outside 10 blocks: normal aim and shoot
-                sk.getLookControl().setLookAt(p, 30.0F, 30.0F);
-                if (now >= sk.getPersistentData().getLong("sm_skel_shot")) {
-                    sk.performRangedAttack(p, 1.0F);
-                    sk.getPersistentData().putLong("sm_skel_shot", now + 24);
-                }
             }
         }
 

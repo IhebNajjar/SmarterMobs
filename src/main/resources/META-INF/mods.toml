@@ -4,9 +4,9 @@ license="MIT"
 
 [[mods]]
 modId="smartermobsitscarderidea"
-version="1.2.1"
+version="1.3.0"
 displayName="SmarterMobsitscarderidea"
-description='''Massive AI overhaul: pack hunting piglins, digging brutes & vindicators, charging hoglins, fangs/vexes evokers, daylight-chasing drowned, web-throwing spiders, kiting skeletons with meat-shields & trapped counterattacks, blazing strafes, phantom dive flocks, and paced dragon ambushes!'''
+description='''Massive AI overhaul: Iron Golem village crime & stealth theft detection, smooth skeleton bow animations with meat-shields & trapped counterattacks, frequent Ender Dragon dive attacks, pack hunting piglins, web-throwing spiders, and more!'''
 
 [[dependencies.smartermobsitscarderidea]]
 modId="forge"
