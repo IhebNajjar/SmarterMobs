@@ -22,8 +22,10 @@ import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.animal.horse.AbstractHorse;
 import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.entity.monster.Vindicator;
 import net.minecraft.world.entity.monster.WitherSkeleton;
 import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.entity.monster.piglin.PiglinBrute;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
@@ -37,7 +39,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 /**
  * Harder-world features:
- *  - zombies / wither skeletons break blocks when they can't reach you (anti-pillar, anti-dig-down)
+ *  - zombies, wither skeletons, piglin brutes, and vindicators break blocks when they can't reach you
  *  - passive animals flee from you
  *  - killing an animal or villager makes iron golems hunt you
  *  - villagers repair damaged iron golems
@@ -72,7 +74,7 @@ public class HarderWorld {
                 && !(a instanceof AbstractHorse)
                 && !(a instanceof NeutralMob)
                 && !(a instanceof Enemy)) {
-            // Run away from the player, unless he is holding this animal's food (so you can still breed/lead them)
+            // Run away from the player, unless holding this animal's food
             a.goalSelector.addGoal(1, new AvoidEntityGoal<>(a, Player.class,
                     (float) ANIMAL_FLEE_DISTANCE, 1.2D, 1.6D,
                     p -> !(p instanceof Player pl)
@@ -83,6 +85,14 @@ public class HarderWorld {
             }
         } else if (en instanceof Villager v) {
             v.goalSelector.addGoal(2, new RepairGolemGoal(v));
+        } else if (en instanceof PiglinBrute pb) {
+            if (pb.getAttribute(Attributes.FOLLOW_RANGE) != null) {
+                pb.getAttribute(Attributes.FOLLOW_RANGE).setBaseValue(40);
+            }
+        } else if (en instanceof Vindicator vi) {
+            if (vi.getAttribute(Attributes.FOLLOW_RANGE) != null) {
+                vi.getAttribute(Attributes.FOLLOW_RANGE).setBaseValue(40);
+            }
         }
     }
 
@@ -115,7 +125,9 @@ public class HarderWorld {
         if (le.level().isClientSide()) return;
 
         if (le instanceof IronGolem g) golemLeap(g);
-        if (le instanceof Zombie || le instanceof WitherSkeleton) digTick((Mob) le);
+        if (le instanceof Zombie || le instanceof WitherSkeleton || le instanceof PiglinBrute || le instanceof Vindicator) {
+            digTick((Mob) le);
+        }
     }
 
     // ---------------- Iron golem leap ----------------

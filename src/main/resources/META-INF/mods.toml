@@ -4,9 +4,9 @@ license="MIT"
 
 [[mods]]
 modId="smartermobsitscarderidea"
-version="1.1.0"
+version="1.2.0"
 displayName="SmarterMobsitscarderidea"
-description='''Mobs get smarter and harder: surprise dragon ambush dives, leaping venomous spiders, tactical witches, drowning zombies, kiting skeletons, and digging mobs.'''
+description='''Massive AI overhaul: pack hunting piglins, digging brutes & vindicators, charging hoglins, fangs/vexes evokers, daylight-chasing drowned, web-throwing spiders, kiting skeletons with meat-shields & trapped counterattacks, blazing strafes, phantom dive flocks, and paced dragon ambushes!'''
 
 [[dependencies.smartermobsitscarderidea]]
 modId="forge"
