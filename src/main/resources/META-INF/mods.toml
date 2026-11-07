@@ -4,9 +4,9 @@ license="MIT"
 
 [[mods]]
 modId="smartermobsitscarderidea"
-version="1.3.0"
+version="1.3.1"
 displayName="SmarterMobsitscarderidea"
-description='''Massive AI overhaul: Iron Golem village crime & stealth theft detection, smooth skeleton bow animations with meat-shields & trapped counterattacks, frequent Ender Dragon dive attacks, pack hunting piglins, web-throwing spiders, and more!'''
+description='''Massive AI overhaul: Skeletons rapid-fire point-blank + low-health 5-block bow bash + smart pathfinding retreat, Iron Golem village crime & stealth theft detection, frequent Ender Dragon dive attacks, and more!'''
 
 [[dependencies.smartermobsitscarderidea]]
 modId="forge"

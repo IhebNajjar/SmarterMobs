@@ -7,6 +7,7 @@ import java.util.WeakHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -14,6 +15,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.NeutralMob;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.util.DefaultRandomPos;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.enderdragon.phases.EnderDragonPhase;
 import net.minecraft.world.entity.monster.AbstractSkeleton;
@@ -258,7 +260,7 @@ public class SmarterMobs {
             }
         }
 
-        // ---------------- Skeletons (Smooth bow animations, 10-block retreat, meat-shields, fight when cornered) ----------------
+        // ---------------- Skeletons (Smooth bow animations, smart path retreat, rapid point-blank, low-health bow bash) ----------------
         private void skeletonTick(AbstractSkeleton sk) {
             LivingEntity t = sk.getTarget();
             if (!(t instanceof Player p) || !p.isAlive() || p.isCreative() || p.isSpectator()) return;
@@ -266,24 +268,45 @@ public class SmarterMobs {
             double dist = sk.distanceTo(p);
             long now = sk.level().getGameTime();
 
+            // Check if skeleton is cornered or very close
             boolean isCornered = (sk.horizontalCollision || sk.getDeltaMovement().horizontalDistanceSqr() < 0.005) && dist < 8.0;
             boolean isTooClose = dist <= 3.5;
 
+            // 1. EMERGENCY BOW BASH ATTACK (Low health <= 8.0 HP & very close <= 3.0 blocks):
+            // Knocks player 5 blocks away with a blunt bow hit!
+            if (dist <= 3.0 && sk.getHealth() <= 8.0F) {
+                if (now >= sk.getPersistentData().getLong("sm_skel_bash")) {
+                    sk.getLookControl().setLookAt(p, 40.0F, 40.0F);
+                    sk.swing(InteractionHand.MAIN_HAND);
+                    sk.level().playSound(null, sk.blockPosition(), SoundEvents.PLAYER_ATTACK_KNOCKBACK, SoundSource.HOSTILE, 1.2F, 0.85F);
+                    p.hurt(sk.level().damageSources().mobAttack(sk), 5.0F);
+
+                    // Launch player 5 blocks away!
+                    Vec3 knock = p.position().subtract(sk.position()).normalize();
+                    p.knockback(2.8D, -knock.x, -knock.z);
+                    p.setDeltaMovement(knock.x * 1.35, 0.42, knock.z * 1.35);
+                    p.hurtMarked = true;
+
+                    sk.getPersistentData().putLong("sm_skel_bash", now + 60); // 3s cooldown
+                    return; // Performs bow bash attack instead of shooting
+                }
+            }
+
+            // 2. VERY CLOSE (< 3.5 blocks) or CORNERED: Rapid-fire point blank arrows!
             if (isTooClose || isCornered) {
-                // FIXED: Cornered / rushed: face player and fight point-blank!
                 sk.getLookControl().setLookAt(p, 40.0F, 40.0F);
 
-                // If not currently drawing bow, shoot!
+                // Shoot twice as fast! Every 9 ticks (~0.45s) point-blank!
                 if (!sk.isUsingItem() && now >= sk.getPersistentData().getLong("sm_skel_shot")) {
-                    sk.performRangedAttack(p, 1.0F);
-                    sk.getPersistentData().putLong("sm_skel_shot", now + 16);
+                    sk.performRangedAttack(p, 0.85F);
+                    sk.getPersistentData().putLong("sm_skel_shot", now + 9);
                 }
 
-                if (dist <= 2.2) {
-                    sk.doHurtTarget(p); // Melee strike if right in your face!
+                if (dist <= 1.8) {
+                    sk.doHurtTarget(p); // Melee strike if in close melee
                 }
             } else if (dist <= 10.0) {
-                // Retreat when within 10 blocks: check if there is a tanky monster to hide behind
+                // 3. RETREAT WHEN WITHIN 10 BLOCKS (Smart pathfinding to avoid getting stuck running in place):
                 Monster meatShield = null;
                 double minShieldDist = Double.MAX_VALUE;
                 AABB searchBox = sk.getBoundingBox().inflate(10);
@@ -302,11 +325,22 @@ public class SmarterMobs {
                     Vec3 hideSpot = meatShield.position().add(playerToShield.scale(2.5));
                     sk.getNavigation().moveTo(hideSpot.x, hideSpot.y, hideSpot.z, 1.25D);
                 } else {
-                    Vec3 away = sk.position().subtract(p.position()).normalize().scale(0.24);
-                    sk.setDeltaMovement(away.x, sk.getDeltaMovement().y, away.z);
+                    // Smart pathfinding away from player: jumps over obstacles & doesn't run into walls!
+                    if (sk.getNavigation().isDone() || sk.tickCount % 15 == 0) {
+                        Vec3 retreatPos = DefaultRandomPos.getPosAway(sk, 12, 4, p.position());
+                        if (retreatPos != null) {
+                            sk.getNavigation().moveTo(retreatPos.x, retreatPos.y, retreatPos.z, 1.25D);
+                        }
+                    }
                 }
 
                 sk.getLookControl().setLookAt(p, 30.0F, 30.0F);
+
+                // Normal fire rate while kiting
+                if (!sk.isUsingItem() && now >= sk.getPersistentData().getLong("sm_skel_shot")) {
+                    sk.performRangedAttack(p, 1.0F);
+                    sk.getPersistentData().putLong("sm_skel_shot", now + 20);
+                }
             }
         }
 
