@@ -13,6 +13,7 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.NeutralMob;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.util.DefaultRandomPos;
@@ -31,6 +32,7 @@ import net.minecraft.world.entity.monster.Spider;
 import net.minecraft.world.entity.monster.Vex;
 import net.minecraft.world.entity.monster.Vindicator;
 import net.minecraft.world.entity.monster.Witch;
+import net.minecraft.world.entity.monster.WitherSkeleton;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.entity.monster.hoglin.Hoglin;
 import net.minecraft.world.entity.monster.piglin.AbstractPiglin;
@@ -77,6 +79,45 @@ public class SmarterMobs {
 
         private final Map<Creeper, CreeperState> creeperStates = new WeakHashMap<>();
 
+        /** Per-mob chase momentum tracking for slow pursuers (Zombies, Wither Skeletons, Brutes, Drowned on land). */
+        private static class ChaseState {
+            Vec3 lastPos;
+            double walkDist = 0;
+        }
+
+        private final Map<Mob, ChaseState> chaseStates = new WeakHashMap<>();
+
+        private void applyChaseMomentum(Mob mob, double distThresholdBlocks) {
+            LivingEntity target = mob.getTarget();
+            if (!(target instanceof Player p) || !p.isAlive() || p.isCreative() || p.isSpectator()) {
+                chaseStates.remove(mob);
+                return;
+            }
+
+            ChaseState state = chaseStates.computeIfAbsent(mob, k -> new ChaseState());
+            Vec3 pos = mob.position();
+
+            if (state.lastPos != null) {
+                double moved = Math.hypot(pos.x - state.lastPos.x, pos.z - state.lastPos.z);
+                if (moved > 0.02) {
+                    state.walkDist += moved;
+                } else {
+                    state.walkDist = 0; // stopped, trapped, or blocked
+                }
+            }
+            state.lastPos = pos;
+
+            // Once walking for distThresholdBlocks (e.g. 3 blocks), gain momentum acceleration
+            if (state.walkDist >= distThresholdBlocks) {
+                double dist = mob.distanceTo(p);
+                if (dist > 2.5) {
+                    // If player is running away (sprinting or > 6 blocks away), speed up more (Speed II)
+                    int amplifier = (p.isSprinting() || dist > 6.0) ? 1 : 0;
+                    mob.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 35, amplifier, false, false));
+                }
+            }
+        }
+
         // ------------------------------------------------------------
         // Setup when a mob enters the world
         // ------------------------------------------------------------
@@ -121,7 +162,9 @@ public class SmarterMobs {
             if (le instanceof Creeper c) creeperTick(c);
             else if (le instanceof EnderDragon d) dragonTick(d);
             else if (le instanceof Spider sp) spiderTick(sp);
+            else if (le instanceof WitherSkeleton ws) witherSkeletonTick(ws);
             else if (le instanceof AbstractSkeleton sk) skeletonTick(sk);
+            else if (le instanceof PiglinBrute pb) piglinBruteTick(pb);
             else if (le instanceof Piglin pig) piglinTick(pig);
             else if (le instanceof Pillager pil) pillagerTick(pil);
             else if (le instanceof Evoker ev) evokerTick(ev);
@@ -195,8 +238,10 @@ public class SmarterMobs {
                 return;
             }
 
-            if (s.runDist >= 2.0) {
-                c.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 30, 0, false, false));
+            // Starts slow, but after walking 3 blocks builds momentum chasing player
+            if (s.runDist >= 3.0) {
+                int amp = (p.isSprinting() || c.distanceTo(p) > 6.0) ? 1 : 0;
+                c.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 35, amp, false, false));
             }
 
             double d = c.distanceTo(p);
@@ -606,6 +651,11 @@ public class SmarterMobs {
                 dr.clearFire();
                 dr.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE, 60, 0, false, false));
 
+                // On land: slow walking at first, accelerates after 3 blocks of pursuit
+                if (!dr.isInWater()) {
+                    applyChaseMomentum(dr, 3.0);
+                }
+
                 // Throw tridents from farther away (up to 30 blocks)
                 double dist = dr.distanceTo(p);
                 if (dist > 8.0 && dist <= 30.0 && dr.hasLineOfSight(p) && dr.tickCount % 45 == 0) {
@@ -616,11 +666,23 @@ public class SmarterMobs {
             }
         }
 
-        // ---------------- Zombies (Frenzy speed on wounded prey) ----------------
+        // ---------------- Wither Skeletons (Chase momentum & charge) ----------------
+        private void witherSkeletonTick(WitherSkeleton ws) {
+            applyChaseMomentum(ws, 3.0);
+        }
+
+        // ---------------- Piglin Brutes (Chase momentum) ----------------
+        private void piglinBruteTick(PiglinBrute pb) {
+            applyChaseMomentum(pb, 3.0);
+        }
+
+        // ---------------- Zombies (Chase momentum & frenzy speed on wounded prey) ----------------
         private void zombieTick(Zombie z) {
+            applyChaseMomentum(z, 3.0);
+
             LivingEntity t = z.getTarget();
             if (t instanceof Player p && p.getHealth() <= 10.0F) {
-                z.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 40, 0, false, false));
+                z.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 40, 1, false, false));
             }
         }
 
